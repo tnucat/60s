@@ -4,7 +4,7 @@ import type { RouterMiddleware } from '@oak/oak'
 
 class ServiceEpic {
   handle(): RouterMiddleware<'/epic'> {
-    return async ctx => {
+    return async (ctx) => {
       const data = await this.#fetch()
 
       switch (ctx.state.encoding) {
@@ -35,28 +35,16 @@ class ServiceEpic {
     const data = ((await (await fetch(Common.useProxiedUrl(api))).json()) || {}) as any
 
     const allGames = (data?.data?.Catalog?.searchStore?.elements || []) as GameItem[]
+
     const activeGames = allGames
-      .filter(e => e.offerType === 'BASE_GAME' && e.promotions)
-      .toSorted((a, b) => {
-        return (
-          (a.promotions?.upcomingPromotionalOffers?.length || 0) -
-          (b.promotions?.upcomingPromotionalOffers?.length || 0)
-        )
-      })
+      .filter((e) => e.offerType === 'BASE_GAME' && !!getFreeOffer(e))
+      .toSorted((a, b) => compareDate(getFreeOffer(a)?.startDate || '', getFreeOffer(b)?.startDate || ''))
 
-    return activeGames.map(e => {
+    return activeGames.map((e) => {
       const slug =
-        e.productSlug ||
-        e.catalogNs?.mappings?.[0]?.pageSlug ||
-        e.offerMappings?.[0]?.pageSlug ||
-        e.urlSlug ||
-        ''
+        e.productSlug || e.catalogNs?.mappings?.[0]?.pageSlug || e.offerMappings?.[0]?.pageSlug || e.urlSlug || ''
 
-      const promotion = e.promotions?.upcomingPromotionalOffers.length
-        ? e.promotions?.upcomingPromotionalOffers
-        : e.promotions?.promotionalOffers || []
-
-      const offer = promotion[0]?.promotionalOffers?.[0]
+      const offer = getFreeOffer(e)
       const { startDate, endDate } = offer || {}
 
       const promotionStartAt = startDate ? new Date(startDate).getTime() : new Date('1970/1/1')
@@ -82,6 +70,22 @@ class ServiceEpic {
 }
 
 export const serviceEpic = new ServiceEpic()
+
+function getFreeOffer(e: GameItem) {
+  const promotion =
+    e.promotions?.upcomingPromotionalOffers.find((e) =>
+      e.promotionalOffers.find((e) => e.discountSetting.discountPercentage === 0),
+    ) ||
+    e.promotions?.promotionalOffers.find((e) =>
+      e.promotionalOffers.find((e) => e.discountSetting.discountPercentage === 0),
+    )
+
+  return promotion?.promotionalOffers.find((e) => e.discountSetting.discountPercentage === 0)
+}
+
+function compareDate(a: string, b: string) {
+  return new Date(a).getTime() - new Date(b).getTime()
+}
 
 interface GameItem {
   title: string
